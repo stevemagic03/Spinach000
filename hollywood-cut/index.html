@@ -59,7 +59,6 @@
             );
         }
 
-        /* Letter paper corner effect */
         .letter-corner {
             position: relative;
         }
@@ -74,7 +73,6 @@
             background: linear-gradient(135deg, transparent 50%, rgba(0, 47, 167, 0.05) 50%);
         }
 
-        /* Floating animation for background elements */
         @keyframes float {
             0%, 100% { transform: translateY(0) rotate(0deg); }
             50% { transform: translateY(-20px) rotate(5deg); }
@@ -89,7 +87,6 @@
         .float-element:nth-child(4) { animation-delay: -3s; }
         .float-element:nth-child(5) { animation-delay: -4s; }
 
-        /* Loading animation */
         @keyframes rotate-line {
             from { transform: rotate(0deg); }
             to { transform: rotate(360deg); }
@@ -108,7 +105,6 @@
             animation: pulse-circle 1.5s ease-in-out infinite;
         }
 
-        /* Custom scrollbar */
         ::-webkit-scrollbar {
             width: 8px;
         }
@@ -139,10 +135,711 @@
         }
     }
     </script>
+
+    <!-- Babel for JSX transformation -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 <body>
     <div id="root"></div>
 
-    <script type="module" src="./src/App.tsx"></script>
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useRef } from 'react';
+        import ReactDOM from 'react-dom/client';
+        import { motion, AnimatePresence } from 'framer-motion';
+        import { Clapperboard, Upload, Image as ImageIcon, X, Sparkles, Star, Download, Check, Loader2, Music, Circle as CircleIcon } from 'lucide-react';
+        import { GoogleGenerativeAI } from '@google/genai';
+
+        // 提示词模板
+        const PROMPT_TEMPLATE = `【人物与面容】
+核心人物： 以上传图片为唯一面部参考，100%精确重构该人物的面部骨骼结构、皮肤纹理、发型及神态...
+[INSERT MOVIE NAME HERE]主演： 呈现其于电影拍摄期间的样貌...
+互动状态： 两人身着各自的戏服，在电影拍摄间隙...
+
+【镜头与构图】
+镜头： 专业人像摄影机模式拍摄... [INSERT DOF HERE]
+构图： [INSERT RATIO HERE] 采用生活化、不拘谨的抓拍构图...
+
+【灯光与色彩】
+主光源： 完全遵循所选电影场景的环境光逻辑...
+色彩风格： 电影风格的色调...
+
+【服装与造型】
+上传人物着装： 保持不变...
+[INSERT MOVIE NAME HERE]主演着装： 符合剧中时代与角色...
+
+【动作与场景】
+核心动作： 电影拍摄被短暂打断...
+关键元素： 画面中需明确可见电影拍摄现场的痕迹（摄影机、灯光架、麦克风杆等）...
+
+【画面风格与细节】
+细节： 模拟柯达Vision3 500T电影胶片质感，带有自然的银盐颗粒感...
+画面氛围： 温暖、怀旧、充满人情味...
+
+【最终画面感受总结】
+一张超写实的照片，仿佛闯入了拍摄现场...`;
+
+        const DOF_MAP = {
+            'f/1.2': '浅景深，背景虚化营造电影质感',
+            'f/4': '标准景深，主体清晰同时保留一定环境细节',
+            'f/11': '深景深，全景清晰，展现完整的片场环境'
+        };
+
+        const RATIO_MAP = {
+            '9:16': '竖屏构图，适合手机端浏览，上下留白营造呼吸感',
+            '3:4': '经典竖画幅，接近杂志封面比例',
+            '4:3': '传统电视画幅，四平八稳的经典电影感',
+            '16:9': '宽银幕画幅，电影级全景构图'
+        };
+
+        const buildPrompt = (movieName, dof, ratio, customPrompt) => {
+            if (customPrompt) return customPrompt;
+            let finalPrompt = PROMPT_TEMPLATE;
+            finalPrompt = finalPrompt.replace(/\[INSERT MOVIE NAME HERE\]/g, movieName || '经典好莱坞电影');
+            finalPrompt = finalPrompt.replace(/\[INSERT DOF HERE\]/g, DOF_MAP[dof] || DOF_MAP['f/1.2']);
+            finalPrompt = finalPrompt.replace(/\[INSERT RATIO HERE\]/g, RATIO_MAP[ratio] || RATIO_MAP['16:9']);
+            return finalPrompt;
+        };
+
+        const generateSetPhoto = async (apiKey, prompt, referenceImage, aspectRatio = '16:9', count = 1) => {
+            const ai = new GoogleGenerativeAI(apiKey);
+            const model = ai.getGenerativeModel({ model: 'gemini-3-pro-image-preview' });
+            const generateTask = async () => {
+                try {
+                    let content = prompt;
+                    if (referenceImage) {
+                        content = [{ inlineData: { mimeType: 'image/jpeg', data: referenceImage } }, prompt];
+                    }
+                    const result = await model.generateContent({
+                        contents: content,
+                        generationConfig: { temperature: 0.9, topP: 0.95, maxOutputTokens: 8192 }
+                    });
+                    const imageData = result.response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+                    if (imageData) return `data:image/jpeg;base64,${imageData}`;
+                    throw new Error('No image generated');
+                } catch (error) {
+                    console.error('Generation error:', error);
+                    throw error;
+                }
+            };
+            if (count > 1) return Promise.all([generateTask(), generateTask()]);
+            return [await generateTask()];
+        };
+
+        const editSetPhoto = async (apiKey, image, editPrompt) => {
+            const ai = new GoogleGenerativeAI(apiKey);
+            const model = ai.getGenerativeModel({ model: 'gemini-2.5-flash-image' });
+            try {
+                const base64Data = image.split(',')[1];
+                const content = [{ inlineData: { mimeType: 'image/jpeg', data: base64Data } }, editPrompt];
+                const result = await model.generateContent({
+                    contents: content,
+                    generationConfig: { temperature: 0.7, topP: 0.9, maxOutputTokens: 8192 }
+                });
+                const imageData = result.response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+                if (imageData) return `data:image/jpeg;base64,${imageData}`;
+                throw new Error('No image edited');
+            } catch (error) {
+                console.error('Edit error:', error);
+                throw error;
+            }
+        };
+
+        const getMoviePosterImpression = async (apiKey, movieName) => {
+            if (!movieName || movieName.length < 2) return null;
+            const ai = new GoogleGenerativeAI(apiKey);
+            const model = ai.getGenerativeModel({ model: 'gemini-2.5-flash-image' });
+            try {
+                const prompt = `A cinematic, iconic movie poster for the movie "${movieName}" - artistic, atmospheric, single color tone, minimalist style, suitable for background overlay`;
+                const result = await model.generateContent({
+                    contents: prompt,
+                    generationConfig: { temperature: 0.8, topP: 0.9 }
+                });
+                const imageData = result.response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+                if (imageData) return `data:image/jpeg;base64,${imageData}`;
+                return null;
+            } catch (error) {
+                console.error('Poster impression error:', error);
+                return null;
+            }
+        };
+
+        const fileToBase64 = (file) => {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result.split(',')[1]);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        };
+
+        // WelcomeScreen Component
+        const WelcomeScreen = ({ onAuth }) => {
+            const [apiKey, setApiKey] = useState('');
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                if (apiKey.trim()) onAuth(apiKey.trim());
+            };
+            return React.createElement('div', { className: 'min-h-screen flex items-center justify-center px-4' },
+                React.createElement(motion.div, {
+                    initial: { opacity: 0, y: 20 },
+                    animate: { opacity: 1, y: 0 },
+                    transition: { duration: 0.6 },
+                    className: 'bg-white border-4 border-primary max-w-md w-full p-8 relative'
+                },
+                    React.createElement(motion.div, {
+                        initial: { scale: 0 },
+                        animate: { scale: 1 },
+                        transition: { delay: 0.3, type: 'spring', bounce: 0.5 },
+                        className: 'flex justify-center mb-6'
+                    },
+                        React.createElement('div', { className: 'relative' },
+                            React.createElement('div', { className: 'w-20 h-20 bg-primary rounded-full flex items-center justify-center' },
+                                React.createElement(Clapperboard, { size: 40, className: 'text-white' })
+                            ),
+                            React.createElement('div', { className: 'absolute inset-0 w-20 h-20 bg-accent rounded-full -z-10 opacity-30 blur-md' })
+                        )
+                    ),
+                    React.createElement(motion.h1, {
+                        initial: { opacity: 0 },
+                        animate: { opacity: 1 },
+                        transition: { delay: 0.4 },
+                        className: 'font-cinematic text-4xl text-center mb-2 text-primary'
+                    }, React.createElement('span', null, 'HOLLYWOOD '), React.createElement('span', { className: 'text-accent' }, 'CUT')),
+                    React.createElement(motion.p, {
+                        initial: { opacity: 0 },
+                        animate: { opacity: 1 },
+                        transition: { delay: 0.5 },
+                        className: 'font-ui text-secondary text-center mb-8 text-sm'
+                    }, 'JAZZ & WESTERN EDITION'),
+                    React.createElement(motion.form, {
+                        initial: { opacity: 0 },
+                        animate: { opacity: 1 },
+                        transition: { delay: 0.6 },
+                        onSubmit: handleSubmit
+                    },
+                        React.createElement('div', { className: 'mb-6' },
+                            React.createElement('input', {
+                                type: 'password',
+                                value: apiKey,
+                                onChange: (e) => setApiKey(e.target.value),
+                                placeholder: '输入 Google Gemini API Key',
+                                className: 'w-full px-4 py-3 border-2 border-primary/30 focus:border-accent focus:outline-none text-center font-mono text-sm transition-colors',
+                                autoFocus: true
+                            })
+                        ),
+                        React.createElement(motion.button, {
+                            whileHover: { scale: 1.02 },
+                            whileTap: { scale: 0.98 },
+                            type: 'submit',
+                            disabled: !apiKey.trim(),
+                            className: 'w-full bg-accent text-white font-ui font-semibold py-3 px-6 hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2'
+                        }, React.createElement(Clapperboard, { size: 20 }), '进入电影片场')
+                    ),
+                    React.createElement(motion.p, {
+                        initial: { opacity: 0 },
+                        animate: { opacity: 1 },
+                        transition: { delay: 0.7 },
+                        className: 'font-mono text-xs text-secondary/60 text-center mt-6'
+                    }, React.createElement('span', null, '获取 API Key: '), React.createElement('a', { href: 'https://console.anthropic.com', className: 'text-primary hover:text-accent underline', target: '_blank', rel: 'noopener noreferrer' }, 'console.anthropic.com'))
+                )
+            );
+        };
+
+        // Header Component
+        const Header = ({ onReset }) => {
+            return React.createElement('header', { className: 'container mx-auto px-4 py-8' },
+                React.createElement('div', { className: 'flex justify-between items-center' },
+                    React.createElement(motion.h1, {
+                        initial: { opacity: 0, y: -20 },
+                        animate: { opacity: 1, y: 0 },
+                        transition: { duration: 0.6 },
+                        className: 'font-cinematic text-6xl md:text-7xl text-primary'
+                    }, React.createElement('span', null, 'Hollywood '), React.createElement('span', { className: 'text-accent' }, 'Cut')),
+                    React.createElement(motion.button, {
+                        initial: { opacity: 0, x: 20 },
+                        animate: { opacity: 1, x: 0 },
+                        transition: { delay: 0.3, duration: 0.6 },
+                        whileHover: { scale: 1.05 },
+                        whileTap: { scale: 0.95 },
+                        onClick: onReset,
+                        className: 'hidden lg:block px-4 py-2 font-mono text-sm text-primary border border-primary/30 hover:border-accent hover:text-accent transition-all'
+                    }, 'RESET')
+                )
+            );
+        };
+
+        // Footer Component
+        const Footer = () => {
+            return React.createElement('footer', { className: 'fixed bottom-0 left-0 right-0 bg-primary text-white py-3 px-4' },
+                React.createElement('div', { className: 'container mx-auto flex justify-between items-center text-sm font-ui' },
+                    React.createElement('span', { className: 'font-mono text-xs opacity-60' }, 'V2.0'),
+                    React.createElement('span', { className: 'font-cinematic text-lg' }, 'HOLLYWOOD CUT ★ JAZZ & WESTERN EDITION'),
+                    React.createElement('span', { className: 'font-mono text-xs opacity-60' }, '2026')
+                )
+            );
+        };
+
+        // BackgroundAtmosphere Component
+        const BackgroundAtmosphere = () => {
+            const elements = [
+                { icon: Music, size: 40, top: '10%', left: '5%', delay: 0, color: '#002FA7' },
+                { icon: Star, size: 32, top: '20%', right: '10%', delay: -1, color: '#FF4500' },
+                { icon: CircleIcon, size: 48, top: '60%', left: '15%', delay: -2, color: '#002FA7' },
+                { icon: Music, size: 36, bottom: '30%', right: '5%', delay: -3, color: '#FF4500' },
+                { icon: Star, size: 28, bottom: '15%', left: '25%', delay: -4, color: '#002FA7' }
+            ];
+            return React.createElement('div', { className: 'fixed inset-0 pointer-events-none z-0' },
+                elements.map((el, index) => React.createElement('div', {
+                    key: index,
+                    className: 'float-element absolute',
+                    style: { top: el.top, left: el.left, right: el.right, bottom: el.bottom, animationDelay: `${el.delay}s`, opacity: 0.1 }
+                }, React.createElement(el.icon, { size: el.size, style: { color: el.color } })))
+            );
+        };
+
+        // MoviePosterOverlay Component
+        const MoviePosterOverlay = ({ image }) => {
+            return React.createElement(AnimatePresence, null,
+                image ? React.createElement(motion.div, {
+                    initial: { opacity: 0 },
+                    animate: { opacity: 1 },
+                    exit: { opacity: 0 },
+                    transition: { duration: 0.5 },
+                    className: 'fixed inset-0 z-0 pointer-events-none'
+                }, React.createElement('img', {
+                    src: image,
+                    alt: '电影海报背景',
+                    className: 'w-full h-full object-cover opacity-20 blur-sm',
+                    style: { mixBlendMode: 'multiply' }
+                })) : null
+            );
+        };
+
+        const ASPECT_RATIOS = [
+            { value: '9:16', label: '抖音 9:16' },
+            { value: '3:4', label: '小红书 3:4' },
+            { value: '4:3', label: 'B站 4:3' },
+            { value: '16:9', label: '宽银幕 16:9' }
+        ];
+
+        const DOF_OPTIONS = [
+            { value: 'f/1.2', label: '浅景深 f/1.2' },
+            { value: 'f/4', label: '标准 f/4' },
+            { value: 'f/11', label: '深景深 f/11' }
+        ];
+
+        // DirectorConsole Component
+        const DirectorConsole = ({ state, handlers }) => {
+            const fileInputRef = useRef(null);
+            const handleFileSelect = (e) => {
+                const file = e.target.files?.[0];
+                if (file) handlers.handleImageUpload(file);
+            };
+            const handleDrop = (e) => {
+                e.preventDefault();
+                const file = e.dataTransfer.files?.[0];
+                if (file && file.type.startsWith('image/')) handlers.handleImageUpload(file);
+            };
+            return React.createElement('div', { className: 'space-y-6' },
+                React.createElement(motion.div, {
+                    initial: { opacity: 0, x: -20 },
+                    animate: { opacity: 1, x: 0 },
+                    transition: { delay: 0.1 },
+                    className: 'bg-white border-2 border-primary/50 p-6 hover:border-accent/50 transition-colors'
+                },
+                    React.createElement('h3', { className: 'font-ui font-semibold text-primary mb-4 flex items-center gap-2' },
+                        React.createElement(ImageIcon, { size: 20 }), '上传人像参考'
+                    ),
+                    state.uploadedImage ?
+                        React.createElement('div', { className: 'relative' },
+                            React.createElement('img', {
+                                src: `data:image/jpeg;base64,${state.uploadedImage}`,
+                                alt: '参考图',
+                                className: 'w-full h-48 object-cover rounded border-2 border-primary/30'
+                            }),
+                            React.createElement(motion.button, {
+                                whileHover: { scale: 1.1 },
+                                whileTap: { scale: 0.9 },
+                                onClick: () => handlers.setUploadedImage(null),
+                                className: 'absolute top-2 right-2 bg-accent text-white p-1 rounded-full'
+                            }, React.createElement(X, { size: 16 }))
+                        ) :
+                        React.createElement('div', {
+                            onClick: () => fileInputRef.current?.click(),
+                            onDrop: handleDrop,
+                            onDragOver: (e) => e.preventDefault(),
+                            className: 'border-2 border-dashed border-primary/30 rounded-lg p-8 text-center cursor-pointer hover:border-accent hover:bg-accent/5 transition-all'
+                        }, React.createElement(Upload, { size: 32, className: 'mx-auto text-primary/50 mb-2' }), React.createElement('p', { className: 'font-ui text-secondary text-sm' }, '点击或拖拽上传图片')),
+                    React.createElement('input', { ref: fileInputRef, type: 'file', accept: 'image/*', onChange: handleFileSelect, className: 'hidden' })
+                ),
+                React.createElement(motion.div, {
+                    initial: { opacity: 0, x: -20 },
+                    animate: { opacity: 1, x: 0 },
+                    transition: { delay: 0.2 },
+                    className: 'bg-white border-2 border-primary/50 p-6 hover:border-accent/50 transition-colors space-y-4'
+                },
+                    React.createElement('h3', { className: 'font-ui font-semibold text-primary flex items-center gap-2' },
+                        React.createElement(Clapperboard, { size: 20 }), '场景设定'
+                    ),
+                    React.createElement('div', null,
+                        React.createElement('label', { className: 'font-ui text-secondary text-sm mb-2 block' }, '电影名称'),
+                        React.createElement('input', {
+                            type: 'text',
+                            value: state.movieName,
+                            onChange: (e) => handlers.setMovieName(e.target.value),
+                            placeholder: '例如：La La Land, Django...',
+                            className: 'w-full px-4 py-2 border border-primary/30 focus:border-accent focus:outline-none font-ui text-sm transition-colors'
+                        })
+                    ),
+                    React.createElement('div', null,
+                        React.createElement('label', { className: 'font-ui text-secondary text-sm mb-2 block' }, '画幅比例'),
+                        React.createElement('div', { className: 'grid grid-cols-2 gap-2' },
+                            ASPECT_RATIOS.map((ratio) => React.createElement(motion.button, {
+                                key: ratio.value,
+                                whileHover: { scale: 1.02 },
+                                whileTap: { scale: 0.98 },
+                                onClick: () => handlers.setAspectRatio(ratio.value),
+                                className: `py-2 px-3 text-sm font-ui transition-all ${state.aspectRatio === ratio.value ? 'bg-accent text-white' : 'bg-primary/10 text-primary hover:bg-primary/20'}`
+                            }, ratio.label))
+                        )
+                    ),
+                    React.createElement('div', null,
+                        React.createElement('label', { className: 'font-ui text-secondary text-sm mb-2 block' }, '镜头景深'),
+                        React.createElement('div', { className: 'flex gap-2' },
+                            DOF_OPTIONS.map((opt) => React.createElement(motion.button, {
+                                key: opt.value,
+                                whileHover: { scale: 1.02 },
+                                whileTap: { scale: 0.98 },
+                                onClick: () => handlers.setDof(opt.value),
+                                className: `flex-1 py-2 px-3 text-sm font-ui transition-all ${state.dof === opt.value ? 'bg-accent text-white' : 'bg-primary/10 text-primary hover:bg-primary/20'}`
+                            }, opt.label))
+                        )
+                    )
+                ),
+                React.createElement(motion.div, {
+                    initial: { opacity: 0, x: -20 },
+                    animate: { opacity: 1, x: 0 },
+                    transition: { delay: 0.3 },
+                    className: 'bg-white border-2 border-primary/50 p-6 hover:border-accent/50 transition-colors'
+                },
+                    React.createElement('h3', { className: 'font-ui font-semibold text-primary mb-4 flex items-center gap-2' },
+                        React.createElement(Sparkles, { size: 20 }), '导演指令'
+                    ),
+                    React.createElement(motion.button, {
+                        whileHover: { scale: 1.02 },
+                        whileTap: { scale: 0.98 },
+                        onClick: handlers.generateDefaultPrompt,
+                        className: 'w-full bg-primary/10 text-primary font-ui py-2 px-4 mb-4 hover:bg-primary/20 transition-colors flex items-center justify-center gap-2'
+                    }, React.createElement(Sparkles, { size: 16 }), '自动生成 Prompt'),
+                    React.createElement('div', { className: 'relative letter-box letter-corner' },
+                        React.createElement('textarea', {
+                            value: state.prompt,
+                            onChange: (e) => handlers.setPrompt(e.target.value),
+                            placeholder: '生成的提示词将显示在这里，你也可以手动编辑...',
+                            rows: 8,
+                            className: 'w-full px-4 py-3 border border-primary/30 focus:border-accent focus:outline-none font-ui text-sm resize-none bg-transparent'
+                        })
+                    )
+                ),
+                React.createElement(motion.div, {
+                    initial: { opacity: 0, x: -20 },
+                    animate: { opacity: 1, x: 0 },
+                    transition: { delay: 0.4 },
+                    className: 'bg-white border-2 border-primary/50 p-6 hover:border-accent/50 transition-colors'
+                },
+                    React.createElement('h3', { className: 'font-ui font-semibold text-primary mb-4' }, 'Action'),
+                    React.createElement('div', { className: 'flex gap-2 mb-4' },
+                        [1, 2].map((count) => React.createElement(motion.button, {
+                            key: count,
+                            whileHover: { scale: 1.02 },
+                            whileTap: { scale: 0.98 },
+                            onClick: () => handlers.setImageCount(count),
+                            className: `flex-1 py-2 px-4 font-ui transition-all ${state.imageCount === count ? 'bg-primary/20 text-primary' : 'bg-transparent border border-primary/30 text-primary hover:bg-primary/10'}`
+                        }, `x${count}`))
+                    ),
+                    React.createElement(motion.button, {
+                        whileHover: { scale: 1.02 },
+                        whileTap: { scale: 0.98 },
+                        onClick: handlers.handleGenerate,
+                        disabled: state.isGenerating,
+                        className: `w-full py-4 px-6 font-ui font-bold text-white flex items-center justify-center gap-3 transition-all ${state.isGenerating ? 'bg-secondary/50 cursor-not-allowed' : 'bg-accent hover:bg-accent/90'}`
+                    }, state.isGenerating ? React.createElement(React.Fragment, null,
+                        React.createElement('div', { className: 'w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin' }),
+                        'PROCESSING...'
+                    ) : React.createElement(React.Fragment, null,
+                        React.createElement(Star, { size: 24 }),
+                        'ACTION'
+                    ))
+                )
+            );
+        };
+
+        // Monitor Component
+        const Monitor = ({ state, handlers }) => {
+            const handleDownload = (image) => {
+                const link = document.createElement('a');
+                link.href = image;
+                link.download = `hollywood-cut-${Date.now()}.jpg`;
+                link.click();
+            };
+            return React.createElement('div', { className: 'space-y-6' },
+                React.createElement(motion.div, {
+                    initial: { opacity: 0, x: 20 },
+                    animate: { opacity: 1, x: 0 },
+                    transition: { delay: 0.1 },
+                    className: 'border-4 border-primary bg-white/50 backdrop-blur-sm'
+                },
+                    React.createElement('div', { className: 'border-2 border-dashed border-primary/30 p-4 min-h-[500px] flex items-center justify-center relative' },
+                        React.createElement(AnimatePresence, { mode: 'wait' },
+                            state.generatedImages.length === 0 && !state.isGenerating ?
+                                React.createElement(motion.div, {
+                                    key: 'empty',
+                                    initial: { opacity: 0 },
+                                    animate: { opacity: 1 },
+                                    exit: { opacity: 0 },
+                                    className: 'text-center'
+                                },
+                                    React.createElement('p', { className: 'font-western text-4xl text-primary/50 mb-2' }, 'NO SIGNAL'),
+                                    React.createElement('p', { className: 'font-ui text-secondary text-sm' }, 'Standby for Action')
+                                ) :
+                                state.isGenerating ?
+                                    React.createElement(motion.div, {
+                                        key: 'loading',
+                                        initial: { opacity: 0 },
+                                        animate: { opacity: 1 },
+                                        exit: { opacity: 0 },
+                                        className: 'text-center'
+                                    },
+                                        React.createElement('div', { className: 'relative w-24 h-24 mx-auto mb-6' },
+                                            React.createElement(motion.div, {
+                                                animate: { rotate: 360 },
+                                                transition: { duration: 1, repeat: Infinity, ease: 'linear' },
+                                                className: 'absolute inset-0 border-4 border-transparent border-t-accent rounded-full'
+                                            }),
+                                            React.createElement(motion.div, {
+                                                animate: { scale: [1, 1.3, 1], opacity: [1, 0.5, 1] },
+                                                transition: { duration: 1.5, repeat: Infinity, ease: 'easeInOut' },
+                                                className: 'absolute inset-4 border-2 border-primary rounded-full'
+                                            })
+                                        ),
+                                        React.createElement('p', { className: 'font-ui font-semibold text-accent text-lg' }, 'DEVELOPING...')
+                                    ) :
+                                    React.createElement(motion.div, {
+                                        key: 'result',
+                                        initial: { opacity: 0 },
+                                        animate: { opacity: 1 },
+                                        exit: { opacity: 0 },
+                                        className: 'relative w-full'
+                                    },
+                                        React.createElement('img', {
+                                            src: state.generatedImages[state.selectedImageIndex],
+                                            alt: '生成的片场照',
+                                            className: 'w-full h-auto rounded border-2 border-primary/20'
+                                        }),
+                                        React.createElement(motion.button, {
+                                            whileHover: { scale: 1.1 },
+                                            whileTap: { scale: 0.9 },
+                                            onClick: () => handleDownload(state.generatedImages[state.selectedImageIndex]),
+                                            className: 'absolute bottom-4 right-4 bg-accent text-white p-2 rounded-full shadow-lg'
+                                        }, React.createElement(Download, { size: 20 }))
+                                    )
+                        )
+                    )
+                ),
+                state.generatedImages.length > 1 ?
+                    React.createElement(AnimatePresence, null,
+                        React.createElement(motion.div, {
+                            initial: { opacity: 0, y: 20 },
+                            animate: { opacity: 1, y: 0 },
+                            exit: { opacity: 0, y: -20 },
+                            className: 'flex gap-2 overflow-x-auto pb-2'
+                        },
+                            state.generatedImages.map((img, index) => React.createElement(motion.button, {
+                                key: index,
+                                whileHover: { scale: 1.05 },
+                                whileTap: { scale: 0.95 },
+                                onClick: () => handlers.setSelectedImageIndex(index),
+                                className: `relative flex-shrink-0 w-24 h-24 rounded overflow-hidden border-2 ${state.selectedImageIndex === index ? 'border-accent' : 'border-primary/30'}`
+                            },
+                                React.createElement('img', {
+                                    src: img,
+                                    alt: `缩略图 ${index + 1}`,
+                                    className: 'w-full h-full object-cover'
+                                }),
+                                state.selectedImageIndex === index ?
+                                    React.createElement('div', { className: 'absolute inset-0 bg-accent/20 flex items-center justify-center' },
+                                        React.createElement(Check, { size: 16, className: 'text-white drop-shadow-md' })
+                                    ) : null
+                            ))
+                        )
+                    ) : null,
+                state.generatedImages.length > 0 ?
+                    React.createElement(AnimatePresence, null,
+                        React.createElement(motion.div, {
+                            initial: { opacity: 0, y: 20 },
+                            animate: { opacity: 1, y: 0 },
+                            exit: { opacity: 0, y: -20 },
+                            className: 'bg-white border-2 border-primary/50 p-6 hover:border-accent/50 transition-colors'
+                        },
+                            React.createElement('h3', { className: 'font-ui font-semibold text-primary mb-4 flex items-center gap-2' },
+                                React.createElement(Sparkles, { size: 20 }), 'Magic Edit'
+                            ),
+                            React.createElement('div', { className: 'flex gap-2' },
+                                React.createElement('input', {
+                                    type: 'text',
+                                    value: state.editPrompt,
+                                    onChange: (e) => handlers.setEditPrompt(e.target.value),
+                                    placeholder: '输入修改指令，如：变成黑白、增加颗粒感...',
+                                    className: 'flex-1 px-4 py-2 border border-primary/30 focus:border-accent focus:outline-none font-ui text-sm transition-colors'
+                                }),
+                                React.createElement(motion.button, {
+                                    whileHover: { scale: 1.02 },
+                                    whileTap: { scale: 0.98 },
+                                    onClick: handlers.handleEdit,
+                                    disabled: state.isEditing || !state.editPrompt,
+                                    className: `px-6 py-2 font-ui font-semibold text-white flex items-center gap-2 transition-all ${state.isEditing || !state.editPrompt ? 'bg-secondary/50 cursor-not-allowed' : 'bg-primary hover:bg-primary/90'}`
+                                }, state.isEditing ? React.createElement(Loader2, { size: 16, className: 'animate-spin' }) : React.createElement(Sparkles, { size: 16 }), 'APPLY CUT')
+                            )
+                        )
+                    ) : null
+            );
+        };
+
+        // Main App Component
+        const App = () => {
+            const [apiKey, setApiKey] = useState(null);
+            const [hasApiKey, setHasApiKey] = useState(false);
+            const [uploadedImage, setUploadedImage] = useState(null);
+            const [movieName, setMovieName] = useState('');
+            const [aspectRatio, setAspectRatio] = useState('16:9');
+            const [dof, setDof] = useState('f/1.2');
+            const [prompt, setPrompt] = useState('');
+            const [isGenerating, setIsGenerating] = useState(false);
+            const [generatedImages, setGeneratedImages] = useState([]);
+            const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+            const [isEditing, setIsEditing] = useState(false);
+            const [editPrompt, setEditPrompt] = useState('');
+            const [posterImpression, setPosterImpression] = useState(null);
+            const [imageCount, setImageCount] = useState(1);
+            const posterDebounceRef = useRef(null);
+
+            useEffect(() => {
+                const storedKey = localStorage.getItem('gemini_api_key');
+                if (storedKey) {
+                    setApiKey(storedKey);
+                    setHasApiKey(true);
+                }
+            }, []);
+
+            const saveApiKey = (key) => {
+                localStorage.setItem('gemini_api_key', key);
+                setApiKey(key);
+                setHasApiKey(true);
+            };
+
+            const resetApiKey = () => {
+                localStorage.removeItem('gemini_api_key');
+                setApiKey(null);
+                setHasApiKey(false);
+            };
+
+            useEffect(() => {
+                if (posterDebounceRef.current) clearTimeout(posterDebounceRef.current);
+                posterDebounceRef.current = setTimeout(async () => {
+                    if (movieName.length >= 2 && apiKey) {
+                        try {
+                            const poster = await getMoviePosterImpression(apiKey, movieName);
+                            setPosterImpression(poster);
+                        } catch (error) {
+                            console.error('Failed to generate poster impression:', error);
+                        }
+                    } else {
+                        setPosterImpression(null);
+                    }
+                }, 1200);
+                return () => {
+                    if (posterDebounceRef.current) clearTimeout(posterDebounceRef.current);
+                };
+            }, [movieName, apiKey]);
+
+            const handleGenerate = async () => {
+                if (!apiKey) return;
+                setIsGenerating(true);
+                setGeneratedImages([]);
+                try {
+                    const finalPrompt = prompt || buildPrompt(movieName, dof, aspectRatio);
+                    const images = await generateSetPhoto(apiKey, finalPrompt, uploadedImage, aspectRatio, imageCount);
+                    setGeneratedImages(images);
+                    setSelectedImageIndex(0);
+                } catch (error) {
+                    console.error('Generation failed:', error);
+                    alert('生成失败，请检查 API Key 或稍后重试');
+                } finally {
+                    setIsGenerating(false);
+                }
+            };
+
+            const handleEdit = async () => {
+                if (!apiKey || generatedImages.length === 0 || !editPrompt) return;
+                setIsEditing(true);
+                try {
+                    const editedImage = await editSetPhoto(apiKey, generatedImages[selectedImageIndex], editPrompt);
+                    const newImages = [...generatedImages];
+                    newImages[selectedImageIndex] = editedImage;
+                    setGeneratedImages(newImages);
+                    setEditPrompt('');
+                } catch (error) {
+                    console.error('Edit failed:', error);
+                    alert('编辑失败，请重试');
+                } finally {
+                    setIsEditing(false);
+                }
+            };
+
+            const handleImageUpload = async (file) => {
+                try {
+                    const base64 = await fileToBase64(file);
+                    setUploadedImage(base64);
+                } catch (error) {
+                    console.error('Image upload failed:', error);
+                    alert('图片上传失败');
+                }
+            };
+
+            const generateDefaultPrompt = () => {
+                const defaultPrompt = buildPrompt(movieName, dof, aspectRatio);
+                setPrompt(defaultPrompt);
+            };
+
+            const appState = { apiKey, hasApiKey, uploadedImage, movieName, aspectRatio, dof, prompt, isGenerating, generatedImages, selectedImageIndex, isEditing, editPrompt, posterImpression, imageCount };
+            const handlers = { setApiKey: saveApiKey, resetApiKey, setUploadedImage, setMovieName, setAspectRatio, setDof, setPrompt, handleGenerate, setSelectedImageIndex, setEditPrompt, handleEdit, handleImageUpload, generateDefaultPrompt, setImageCount };
+
+            if (!hasApiKey) {
+                return React.createElement(React.Fragment, null,
+                    React.createElement(BackgroundAtmosphere),
+                    React.createElement(WelcomeScreen, { onAuth: saveApiKey })
+                );
+            }
+
+            return React.createElement('div', { className: 'min-h-screen relative overflow-hidden bg-canvas' },
+                React.createElement(BackgroundAtmosphere),
+                React.createElement(MoviePosterOverlay, { image: posterImpression }),
+                React.createElement('div', { className: 'relative z-10 pb-20' },
+                    React.createElement(Header, { onReset: resetApiKey }),
+                    React.createElement('main', { className: 'container mx-auto px-4 py-8' },
+                        React.createElement('div', { className: 'grid grid-cols-1 lg:grid-cols-2 gap-8' },
+                            React.createElement(DirectorConsole, { state: appState, handlers: handlers }),
+                            React.createElement(Monitor, { state: appState, handlers: handlers })
+                        )
+                    )
+                ),
+                React.createElement(Footer)
+                )
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(React.createElement(App));
+    </script>
 </body>
 </html>

@@ -1,0 +1,101 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    :root {
+        --canvas: #FAF9F6;
+        --primary: #002FA7;
+        --accent: #FF4500;
+        --secondary: #8B4513;
+    }
+
+    body {
+        margin: 0;
+        padding: 0;
+        background-color: var(--canvas);
+        font-family: 'Inter', sans-serif;
+    }
+
+    .font-cinematic {
+        font-family: 'Playfair Display', serif;
+        font-style: italic;
+    }
+
+    .font-western {
+        font-family: 'Rye', serif;
+    }
+
+    .letter-box {
+        background: repeating-linear-gradient(
+            to bottom,
+            transparent 0,
+            transparent 20px,
+            rgba(0, 47, 167, 0.03) 20px,
+            rgba(0, 47, 167, 0.03) 21px
+        );
+    }
+
+    .letter-corner {
+        position: relative;
+    }
+
+    .letter-corner::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: 40px;
+        height: 40px;
+        background: linear-gradient(135deg, transparent 50%, rgba(0, 47, 167, 0.05) 50%);
+    }
+
+    @keyframes float {
+        0%, 100% { transform: translateY(0) rotate(0deg); }
+        50% { transform: translateY(-20px) rotate(5deg); }
+    }
+
+    .float-element {
+        animation: float 6s ease-in-out infinite;
+    }
+
+    .float-element:nth-child(2) { animation-delay: -1s; }
+    .float-element:nth-child(3) { animation-delay: -2s; }
+    .float-element:nth-child(4) { animation-delay: -3s; }
+    .float-element:nth-child(5) { animation-delay: -4s; }
+
+    @keyframes rotate-line {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+
+    @keyframes pulse-circle {
+        0%, 100% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.3); opacity: 0.5; }
+    }
+
+    .loading-line {
+        animation: rotate-line 1s linear infinite;
+    }
+
+    .loading-circle {
+        animation: pulse-circle 1.5s ease-in-out infinite;
+    }
+
+    ::-webkit-scrollbar {
+        width: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+        background: var(--canvas);
+    }
+
+    ::-webkit-scrollbar-thumb {
+        background: var(--primary);
+        border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+        background: var(--accent);
+    }
+}
